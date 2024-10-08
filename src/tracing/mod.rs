@@ -44,7 +44,7 @@ use types::{CallLog, CallTrace, CallTraceStep};
 mod utils;
 
 mod writer;
-pub use writer::TraceWriter;
+pub use writer::{TraceWriter, TraceWriterConfig};
 
 #[cfg(feature = "js-tracer")]
 pub mod js;
@@ -666,7 +666,7 @@ where
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
         let node = self.last_trace();
-        node.trace.address = contract;
+        node.trace.selfdestruct_address = Some(contract);
         node.trace.selfdestruct_refund_target = Some(target);
         node.trace.selfdestruct_transferred_value = Some(value);
     }
@@ -724,5 +724,15 @@ impl TransactionContext {
     pub const fn with_tx_hash(mut self, tx_hash: B256) -> Self {
         self.tx_hash = Some(tx_hash);
         self
+    }
+}
+
+impl From<alloy_rpc_types_eth::TransactionInfo> for TransactionContext {
+    fn from(tx_info: alloy_rpc_types_eth::TransactionInfo) -> Self {
+        Self {
+            block_hash: tx_info.block_hash,
+            tx_index: tx_info.index.map(|idx| idx as usize),
+            tx_hash: tx_info.hash,
+        }
     }
 }

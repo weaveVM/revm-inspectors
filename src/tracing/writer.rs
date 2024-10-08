@@ -21,40 +21,99 @@ const RETURN: &str = "← ";
 const TRACE_KIND_STYLE: Style = AnsiColor::Yellow.on_default();
 const LOG_STYLE: Style = AnsiColor::Cyan.on_default();
 
+/// Configuration for a [`TraceWriter`].
+#[derive(Clone, Debug)]
+#[allow(missing_copy_implementations)]
+pub struct TraceWriterConfig {
+    use_colors: bool,
+    color_cheatcodes: bool,
+    write_bytecodes: bool,
+}
+
+impl Default for TraceWriterConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TraceWriterConfig {
+    /// Create a new `TraceWriterConfig` with default settings.
+    pub fn new() -> Self {
+        Self {
+            use_colors: use_colors(ColorChoice::Auto),
+            color_cheatcodes: false,
+            write_bytecodes: false,
+        }
+    }
+
+    /// Use colors in the output. Default: [`Auto`](ColorChoice::Auto).
+    pub fn color_choice(mut self, choice: ColorChoice) -> Self {
+        self.use_colors = use_colors(choice);
+        self
+    }
+
+    /// Get the current color choice. `Auto` is lost, so this returns `true` if colors are enabled.
+    pub fn get_use_colors(&self) -> bool {
+        self.use_colors
+    }
+
+    /// Color calls to the cheatcode address differently. Default: false.
+    pub fn color_cheatcodes(mut self, yes: bool) -> Self {
+        self.color_cheatcodes = yes;
+        self
+    }
+
+    /// Returns `true` if calls to the cheatcode address are colored differently.
+    pub fn get_color_cheatcodes(&self) -> bool {
+        self.color_cheatcodes
+    }
+
+    /// Write contract creation codes and deployed codes when writing "create" traces.
+    /// Default: false.
+    pub fn write_bytecodes(mut self, yes: bool) -> Self {
+        self.write_bytecodes = yes;
+        self
+    }
+
+    /// Returns `true` if contract creation codes and deployed codes are written.
+    pub fn get_write_bytecodes(&self) -> bool {
+        self.write_bytecodes
+    }
+}
+
 /// Formats [call traces](CallTraceArena) to an [`Write`] writer.
 ///
 /// Will never write invalid UTF-8.
 #[derive(Clone, Debug)]
 pub struct TraceWriter<W> {
     writer: W,
-    use_colors: bool,
-    color_cheatcodes: bool,
     indentation_level: u16,
+    config: TraceWriterConfig,
 }
 
 impl<W: Write> TraceWriter<W> {
     /// Create a new `TraceWriter` with the given writer.
     #[inline]
     pub fn new(writer: W) -> Self {
-        Self {
-            writer,
-            use_colors: use_colors(ColorChoice::global()),
-            color_cheatcodes: false,
-            indentation_level: 0,
-        }
+        Self::with_config(writer, TraceWriterConfig::new())
+    }
+
+    /// Create a new `TraceWriter` with the given writer and configuration.
+    pub fn with_config(writer: W, config: TraceWriterConfig) -> Self {
+        Self { writer, indentation_level: 0, config }
     }
 
     /// Sets the color choice.
     #[inline]
     pub fn use_colors(mut self, color_choice: ColorChoice) -> Self {
-        self.use_colors = use_colors(color_choice);
+        self.config.use_colors = use_colors(color_choice);
         self
     }
 
     /// Sets whether to color calls to the cheatcode address differently.
     #[inline]
     pub fn color_cheatcodes(mut self, yes: bool) -> Self {
-        self.color_cheatcodes = yes;
+        self.config.color_cheatcodes = yes;
         self
     }
 
@@ -62,6 +121,13 @@ impl<W: Write> TraceWriter<W> {
     #[inline]
     pub fn with_indentation_level(mut self, level: u16) -> Self {
         self.indentation_level = level;
+        self
+    }
+
+    /// Sets whether contract creation codes and deployed codes should be written.
+    #[inline]
+    pub fn write_bytecodes(mut self, yes: bool) -> Self {
+        self.config.write_bytecodes = yes;
         self
     }
 
@@ -175,6 +241,9 @@ impl<W: Write> TraceWriter<W> {
                 "{trace_kind_style}{CALL}new{trace_kind_style:#} {label}@{address}",
                 label = trace.decoded.label.as_deref().unwrap_or("<unknown>")
             )?;
+            if self.config.write_bytecodes {
+                write!(self.writer, "({})", trace.data)?;
+            }
         } else {
             let (func_name, inputs) = match &trace.decoded.call_data {
                 Some(DecodedCallData { signature, args }) => {
@@ -330,7 +399,7 @@ impl<W: Write> TraceWriter<W> {
             return self.writer.write_all(decoded.as_bytes());
         }
 
-        if trace.kind.is_any_create() && trace.status.is_ok() {
+        if !self.config.write_bytecodes && (trace.kind.is_any_create() && trace.status.is_ok()) {
             write!(self.writer, "{} bytes of code", trace.output.len())?;
         } else if !trace.output.is_empty() {
             write!(self.writer, "{}", trace.output)?;
@@ -368,10 +437,10 @@ impl<W: Write> TraceWriter<W> {
     }
 
     fn trace_style(&self, trace: &CallTrace) -> Style {
-        if !self.use_colors {
+        if !self.config.use_colors {
             return Style::default();
         }
-        let color = if self.color_cheatcodes && trace.address == CHEATCODE_ADDRESS {
+        let color = if self.config.color_cheatcodes && trace.address == CHEATCODE_ADDRESS {
             AnsiColor::Blue
         } else if trace.success {
             AnsiColor::Green
@@ -382,14 +451,14 @@ impl<W: Write> TraceWriter<W> {
     }
 
     fn trace_kind_style(&self) -> Style {
-        if !self.use_colors {
+        if !self.config.use_colors {
             return Style::default();
         }
         TRACE_KIND_STYLE
     }
 
     fn log_style(&self) -> Style {
-        if !self.use_colors {
+        if !self.config.use_colors {
             return Style::default();
         }
         LOG_STYLE
