@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.8.1) - 2024-09-30
+
+### Bug Fixes
+
+- Use alloy maps ([#207](https://github.com/paradigmxyz/revm-inspectors/issues/207))
+
+## [0.8.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.8.0) - 2024-09-30
+
+### Dependencies
+
+- Bump alloy 0.4 ([#206](https://github.com/paradigmxyz/revm-inspectors/issues/206))
+
+### Miscellaneous Tasks
+
+- Release 0.8.0
+
+## [0.7.7](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.7) - 2024-09-24
+
+### Features
+
+- Add convenience conversion ([#204](https://github.com/paradigmxyz/revm-inspectors/issues/204))
+
+### Miscellaneous Tasks
+
+- Release 0.7.7
+
+## [0.7.6](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.6) - 2024-09-23
+
+### Features
+
+- Add creation code printing in traces ([#202](https://github.com/paradigmxyz/revm-inspectors/issues/202))
+
+### Miscellaneous Tasks
+
+- Release 0.7.6
+
+## [0.7.5](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.5) - 2024-09-23
+
+### Miscellaneous Tasks
+
+- Release 0.7.5
+- Add `from_flat_call_config` ([#203](https://github.com/paradigmxyz/revm-inspectors/issues/203))
+
+## [0.7.4](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.4) - 2024-09-18
+
+### Miscellaneous Tasks
+
+- Release 0.7.4
+- Support flatcall tracer
+
+## [0.7.3](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.3) - 2024-09-18
+
+### Bug Fixes
+
+- [tracing] Don't overwrite selfdestruct_address ([#190](https://github.com/paradigmxyz/revm-inspectors/issues/190))
+
+### Miscellaneous Tasks
+
+- Release 0.7.3
+
 ## [0.7.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.2) - 2024-09-15
 
 ### Bug Fixes
@@ -13,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.7.2
 - Rm intrusive collections
 - Make clippy happy ([#197](https://github.com/paradigmxyz/revm-inspectors/issues/197))
 
