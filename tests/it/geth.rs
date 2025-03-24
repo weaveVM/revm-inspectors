@@ -2,9 +2,10 @@
 
 use crate::utils::{deploy_contract, inspect};
 use alloy_primitives::{hex, map::HashMap, Address, Bytes};
+use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
-    mux::MuxConfig, CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethTrace,
-    PreStateConfig,
+    mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
+    GethTrace, PreStateConfig, PreStateFrame,
 };
 use revm::{
     db::{CacheDB, EmptyDB},
@@ -137,13 +138,9 @@ fn test_geth_mux_tracer() {
     let (addr, mut evm) = deploy_contract(code.into(), deployer, SpecId::LONDON);
 
     let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };
+    let flatcall_config =
+        FlatCallConfig { convert_parity_errors: Some(true), include_precompiles: None };
     let prestate_config = PreStateConfig { diff_mode: Some(false), ..Default::default() };
-
-    let nested_call_config = CallConfig { only_top_call: Some(true), with_log: Some(false) };
-    let nested_mux_config = MuxConfig(HashMap::from_iter([(
-        GethDebugBuiltInTracerType::CallTracer,
-        Some(GethDebugTracerConfig(serde_json::to_value(nested_call_config).unwrap())),
-    )]));
 
     let config = MuxConfig(HashMap::from_iter([
         (GethDebugBuiltInTracerType::FourByteTracer, None),
@@ -156,8 +153,8 @@ fn test_geth_mux_tracer() {
             Some(GethDebugTracerConfig(serde_json::to_value(prestate_config).unwrap())),
         ),
         (
-            GethDebugBuiltInTracerType::MuxTracer,
-            Some(GethDebugTracerConfig(serde_json::to_value(nested_mux_config).unwrap())),
+            GethDebugBuiltInTracerType::FlatCallTracer,
+            Some(GethDebugTracerConfig(serde_json::to_value(flatcall_config).unwrap())),
         ),
     ]));
 
@@ -174,13 +171,13 @@ fn test_geth_mux_tracer() {
     let (res, _) = inspect(&mut evm.db, env, &mut insp).unwrap();
     assert!(res.result.is_success());
 
-    let frame = insp.try_into_mux_frame(&res, &evm.db).unwrap();
+    let frame = insp.try_into_mux_frame(&res, &evm.db, TransactionInfo::default()).unwrap();
 
     assert_eq!(frame.0.len(), 4);
     assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::FourByteTracer));
     assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::CallTracer));
     assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::PreStateTracer));
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::MuxTracer));
+    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::FlatCallTracer));
 
     let four_byte_frame = frame.0[&GethDebugBuiltInTracerType::FourByteTracer].clone();
     match four_byte_frame {
@@ -203,22 +200,30 @@ fn test_geth_mux_tracer() {
         _ => panic!("Expected CallTracer"),
     }
 
-    let nested_frame = frame.0[&GethDebugBuiltInTracerType::MuxTracer].clone();
-    match nested_frame {
-        GethTrace::MuxTracer(nested_frame) => {
-            assert_eq!(nested_frame.0.len(), 1);
-            assert!(nested_frame.0.contains_key(&GethDebugBuiltInTracerType::CallTracer));
-
-            let nested_call_frame = nested_frame.0[&GethDebugBuiltInTracerType::CallTracer].clone();
-            match nested_call_frame {
-                GethTrace::CallTracer(nested_call_frame) => {
-                    assert_eq!(nested_call_frame.calls.len(), 0);
-                    assert_eq!(nested_call_frame.logs.len(), 0);
-                }
-                _ => panic!("Expected CallTracer"),
+    let prestate_frame = frame.0[&GethDebugBuiltInTracerType::PreStateTracer].clone();
+    match prestate_frame {
+        GethTrace::PreStateTracer(prestate_frame) => {
+            if let PreStateFrame::Default(prestate_mode) = prestate_frame {
+                assert_eq!(prestate_mode.0.len(), 2);
+            } else {
+                panic!("Expected Default PreStateFrame");
             }
         }
-        _ => panic!("Expected MuxTracer"),
+        _ => panic!("Expected PreStateTracer"),
+    }
+
+    let flatcall_frame = frame.0[&GethDebugBuiltInTracerType::FlatCallTracer].clone();
+    match flatcall_frame {
+        GethTrace::FlatCallTracer(traces) => {
+            assert_eq!(traces.len(), 6);
+            assert!(traces[0].trace.error.is_none());
+            assert!(traces[1].trace.error.is_some());
+            assert!(traces[2].trace.error.is_some());
+            assert!(traces[3].trace.error.is_none());
+            assert!(traces[4].trace.error.is_none());
+            assert!(traces[5].trace.error.is_none());
+        }
+        _ => panic!("Expected FlatCallTracer"),
     }
 }
 
