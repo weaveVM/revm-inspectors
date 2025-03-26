@@ -10,6 +10,11 @@ use crate::tracing::{
     types::CallKind,
     TransactionContext,
 };
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use alloy_primitives::{Address, Bytes, Log, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
@@ -213,7 +218,7 @@ impl JsInspector {
     ) -> Result<serde_json::Value, JsInspectorError>
     where
         DB: DatabaseRef,
-        <DB as DatabaseRef>::Error: std::fmt::Display,
+        <DB as DatabaseRef>::Error: core::fmt::Display,
     {
         let result = self.result(res, env, db)?;
         Ok(to_serde_value(result, &mut self.ctx)?)
@@ -228,7 +233,7 @@ impl JsInspector {
     ) -> Result<JsValue, JsInspectorError>
     where
         DB: DatabaseRef,
-        <DB as DatabaseRef>::Error: std::fmt::Display,
+        <DB as DatabaseRef>::Error: core::fmt::Display,
     {
         let ResultAndState { result, state } = res;
         let (db, _db_guard) = EvmDbRef::new(&state, db);
@@ -350,21 +355,21 @@ impl JsInspector {
     /// Returns true if there's an exit function and the active call is not the root call.
     #[inline]
     fn can_call_exit(&mut self) -> bool {
-        self.enter_fn.is_some() && !self.is_root_call_active()
+        self.exit_fn.is_some() && !self.is_root_call_active()
     }
 
     /// Pushes a new call to the stack
     fn push_call(
         &mut self,
-        address: Address,
-        data: Bytes,
+        contract: Address,
+        input: Bytes,
         value: U256,
         kind: CallKind,
         caller: Address,
         gas_limit: u64,
     ) -> &CallStackItem {
         let call = CallStackItem {
-            contract: Contract { caller, contract: address, value, input: data },
+            contract: Contract { caller, contract, value, input },
             kind,
             gas_limit,
         };
@@ -388,7 +393,7 @@ impl JsInspector {
 impl<DB> Inspector<DB> for JsInspector
 where
     DB: Database + DatabaseRef,
-    <DB as DatabaseRef>::Error: std::fmt::Display,
+    <DB as DatabaseRef>::Error: core::fmt::Display,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         if self.step_fn.is_none() {
@@ -453,21 +458,19 @@ where
     ) -> Option<CallOutcome> {
         self.register_precompiles(&context.precompiles);
 
-        // determine correct `from` and `to` based on the call scheme
-        let (from, to) = match inputs.scheme {
-            CallScheme::DelegateCall | CallScheme::CallCode => {
-                (inputs.target_address, inputs.bytecode_address)
-            }
-            _ => (inputs.caller, inputs.bytecode_address),
+        // determine contract address based on the call scheme
+        let contract = match inputs.scheme {
+            CallScheme::DelegateCall | CallScheme::CallCode => inputs.target_address,
+            _ => inputs.bytecode_address,
         };
 
         let value = inputs.transfer_value().unwrap_or_default();
         self.push_call(
-            to,
+            contract,
             inputs.input.clone(),
             value,
             inputs.scheme.into(),
-            from,
+            inputs.caller,
             inputs.gas_limit,
         );
 
@@ -478,9 +481,11 @@ where
                 kind: call.kind,
                 gas: inputs.gas_limit,
             };
-            if let Err(_err) = self.try_enter(frame) {
-                todo!("return revert")
-                // return (InstructionResult::Revert, Gas::new(0), err.to_string().into());
+            if let Err(err) = self.try_enter(frame) {
+                return Some(CallOutcome::new(
+                    js_error_to_revert(err),
+                    inputs.return_memory_offset.clone(),
+                ));
             }
         }
 
@@ -518,9 +523,9 @@ where
 
         let _ = context.load_account(inputs.caller);
         let nonce = context.journaled_state.account(inputs.caller).info.nonce;
-        let address = inputs.created_address(nonce);
+        let contract = inputs.created_address(nonce);
         self.push_call(
-            address,
+            contract,
             inputs.init_code.clone(),
             inputs.value,
             inputs.scheme.into(),

@@ -1,11 +1,14 @@
 //! Geth trace builder
-
 use crate::tracing::{
     types::{CallTraceNode, CallTraceStepStackItem},
     utils::load_account_code,
-    TracingInspectorConfig,
 };
-use alloy_primitives::{Address, Bytes, B256, U256};
+use alloc::{
+    borrow::Cow,
+    collections::{BTreeMap, VecDeque},
+    vec::Vec,
+};
+use alloy_primitives::{map::HashMap, Address, Bytes, B256, U256};
 use alloy_rpc_types_trace::geth::{
     AccountChangeKind, AccountState, CallConfig, CallFrame, DefaultFrame, DiffMode,
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
@@ -14,37 +17,25 @@ use revm::{
     db::DatabaseRef,
     primitives::{EvmState, ResultAndState},
 };
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap, VecDeque},
-};
 
 /// A type for creating geth style traces
 #[derive(Clone, Debug)]
 pub struct GethTraceBuilder<'a> {
     /// Recorded trace nodes.
     nodes: Cow<'a, [CallTraceNode]>,
-    /// How the traces were recorded
-    _config: TracingInspectorConfig,
 }
 
 impl GethTraceBuilder<'static> {
     /// Returns a new instance of the builder from [`Cow::Owned`]
-    pub fn new(
-        nodes: Vec<CallTraceNode>,
-        _config: TracingInspectorConfig,
-    ) -> GethTraceBuilder<'static> {
-        Self { nodes: Cow::Owned(nodes), _config }
+    pub fn new(nodes: Vec<CallTraceNode>) -> GethTraceBuilder<'static> {
+        Self { nodes: Cow::Owned(nodes) }
     }
 }
 
 impl<'a> GethTraceBuilder<'a> {
     /// Returns a new instance of the builder from [`Cow::Borrowed`]
-    pub fn new_borrowed(
-        nodes: &'a [CallTraceNode],
-        _config: TracingInspectorConfig,
-    ) -> GethTraceBuilder<'a> {
-        Self { nodes: Cow::Borrowed(nodes), _config }
+    pub fn new_borrowed(nodes: &'a [CallTraceNode]) -> GethTraceBuilder<'a> {
+        Self { nodes: Cow::Borrowed(nodes) }
     }
 
     /// Consumes the builder and returns the recorded trace nodes.
@@ -120,7 +111,7 @@ impl<'a> GethTraceBuilder<'a> {
         let main_trace = &main_trace_node.trace;
 
         let mut struct_logs = Vec::new();
-        let mut storage = HashMap::new();
+        let mut storage = HashMap::default();
         self.fill_geth_trace(main_trace_node, &opts, &mut storage, &mut struct_logs);
 
         DefaultFrame {
@@ -276,7 +267,8 @@ impl<'a> GethTraceBuilder<'a> {
     ) -> Result<PreStateFrame, DB::Error> {
         let account_diffs = state.iter().map(|(addr, acc)| (*addr, acc));
         let mut state_diff = DiffMode::default();
-        let mut account_change_kinds = HashMap::with_capacity(account_diffs.len());
+        let mut account_change_kinds =
+            HashMap::with_capacity_and_hasher(account_diffs.len(), Default::default());
         for (addr, changed_acc) in account_diffs {
             let db_acc = db.basic_ref(addr)?.unwrap_or_default();
 

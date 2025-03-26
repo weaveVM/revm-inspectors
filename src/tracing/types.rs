@@ -1,17 +1,22 @@
 //! Types for representing call trace items.
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
+use alloc::{
+    collections::VecDeque,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 pub use alloy_primitives::Log;
 use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256};
 use alloy_rpc_types_trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
         Action, ActionType, CallAction, CallOutput, CallType, CreateAction, CreateOutput,
-        SelfdestructAction, TraceOutput, TransactionTrace,
+        CreationMethod, SelfdestructAction, TraceOutput, TransactionTrace,
     },
 };
 use revm::interpreter::{opcode, CallScheme, CreateScheme, InstructionResult, OpCode};
-use std::collections::VecDeque;
 
 /// Decoded call data.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -130,6 +135,12 @@ impl CallTrace {
             InstructionResult::OutOfGas | InstructionResult::PrecompileOOG => {
                 if kind.is_parity() { "Out of gas" } else { "out of gas" }.to_string()
             }
+            InstructionResult::OutOfFunds => if kind.is_parity() {
+                "Insufficient balance for transfer"
+            } else {
+                "insufficient balance for transfer"
+            }
+            .to_string(),
             InstructionResult::MemoryOOG => {
                 if kind.is_parity() { "Out of gas" } else { "out of gas: out of memory" }
                     .to_string()
@@ -397,6 +408,7 @@ impl CallTraceNode {
                     value: self.trace.value,
                     gas: self.trace.gas_limit,
                     init: self.trace.data.clone(),
+                    creation_method: self.kind().into(),
                 })
             }
         }
@@ -522,8 +534,19 @@ impl CallKind {
     }
 }
 
-impl std::fmt::Display for CallKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl From<CallKind> for CreationMethod {
+    fn from(kind: CallKind) -> CreationMethod {
+        match kind {
+            CallKind::Create => CreationMethod::Create,
+            CallKind::Create2 => CreationMethod::Create2,
+            CallKind::EOFCreate => CreationMethod::EofCreate,
+            _ => CreationMethod::None,
+        }
+    }
+}
+
+impl core::fmt::Display for CallKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(self.to_str())
     }
 }
@@ -616,7 +639,7 @@ pub enum DecodedTraceStep {
     /// Keeps decoded internal call data and an index of the step where the internal call execution
     /// ends.
     InternalCall(DecodedInternalCall, usize),
-    /// Arbitrary line reperesenting the step. Might be used for displaying individual opcodes.
+    /// Arbitrary line representing the step. Might be used for displaying individual opcodes.
     Line(String),
 }
 
