@@ -10,13 +10,13 @@ repository = "https://github.com/paradigmxyz/revm-inspectors"
 categories = ["cryptography"]
 keywords = ["ethereum", "evm", "inspectors", "tracing", "debugging"]
 exclude = [
-    ".github",
-    "scripts",
-    "testdata",
-    "tests",
-    "cliff.toml",
-    "deny.toml",
-    "release.toml",
+  ".github",
+  "scripts",
+  "testdata",
+  "tests",
+  "cliff.toml",
+  "deny.toml",
+  "release.toml",
 ]
 
 [lints]
@@ -34,7 +34,7 @@ alloy-rpc-types-eth = "0.12"
 alloy-rpc-types-trace = "0.12"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
-revm = { git = "https://github.com/weaveVM/wvm-revm", branch = "merge-upstream-v19.5.0" }
+revm = { git = "https://github.com/weaveVM/wvm-revm", tag = "load-v0.6.0" }
 
 anstyle = { version = "1.0", optional = true }
 colorchoice = "1.0"
@@ -54,12 +54,12 @@ snapbox = { version = "0.6", features = ["term-svg"] }
 [features]
 default = ["std"]
 std = [
-    "alloy-primitives/std",
-    "anstyle/std",
-    "serde/std",
-    "serde_json/std",
-    "revm/std",
-    "thiserror/std",
+  "alloy-primitives/std",
+  "anstyle/std",
+  "serde/std",
+  "serde_json/std",
+  "revm/std",
+  "thiserror/std",
 ]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
