@@ -1,17 +1,20 @@
 //! Geth tests
-
-use crate::utils::{deploy_contract, inspect};
+use crate::utils::deploy_contract;
 use alloy_primitives::{hex, map::HashMap, Address, Bytes};
+use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
-    mux::MuxConfig, CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethTrace,
-    PreStateConfig,
+    mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
+    GethTrace, PreStateConfig, PreStateFrame,
 };
 use revm::{
-    db::{CacheDB, EmptyDB},
-    primitives::{
-        BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg, HandlerCfg, SpecId, TransactTo,
-        TxEnv,
-    },
+    context::{ContextSetters, TxEnv},
+    context_interface::{ContextTr, TransactTo},
+    database::CacheDB,
+    database_interface::EmptyDB,
+    handler::EvmTr,
+    inspector::InspectorEvmTr,
+    primitives::hardfork::SpecId,
+    Context, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::tracing::{MuxInspector, TracingInspector, TracingInspectorConfig};
 
@@ -49,23 +52,26 @@ fn test_geth_calltracer_logs() {
         }
     }
     */
-
+    let mut evm = Context::mainnet().with_db(CacheDB::new(EmptyDB::default())).build_mainnet();
     let code = hex!("608060405234801561001057600080fd5b506103ac806100206000396000f3fe60806040526004361061003f5760003560e01c80630332ed131461014d5780636ae1ad40146101625780638384a00214610177578063de7eb4f31461018c575b60405134815233906000805160206103578339815191529060200160405180910390a2306001600160a01b0316636ae1ad406040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561009d57600080fd5b505af19250505080156100ae575060015b50306001600160a01b0316630332ed136040518163ffffffff1660e01b8152600401600060405180830381600087803b1580156100ea57600080fd5b505af19250505080156100fb575060015b50306001600160a01b0316638384a0026040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561013757600080fd5b505af115801561014b573d6000803e3d6000fd5b005b34801561015957600080fd5b5061014b6101a1565b34801561016e57600080fd5b5061014b610253565b34801561018357600080fd5b5061014b6102b7565b34801561019857600080fd5b5061014b6102dd565b306001600160a01b031663de7eb4f36040518163ffffffff1660e01b8152600401600060405180830381600087803b1580156101dc57600080fd5b505af11580156101f0573d6000803e3d6000fd5b505060405162461bcd60e51b8152602060048201526024808201527f6e6573746564456d6974576974684661696c75726541667465724e6573746564604482015263115b5a5d60e21b6064820152608401915061024a9050565b60405180910390fd5b6040516000815233906000805160206103578339815191529060200160405180910390a260405162461bcd60e51b81526020600482015260156024820152746e6573746564456d6974576974684661696c75726560581b604482015260640161024a565b6040516000815233906000805160206103578339815191529060200160405180910390a2565b6040516000815233906000805160206103578339815191529060200160405180910390a2306001600160a01b0316638384a0026040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561033c57600080fd5b505af1158015610350573d6000803e3d6000fd5b5050505056fef950957d2407bed19dc99b718b46b4ce6090c05589006dfb86fd22c34865b23ea2646970667358221220090a696b9fbd22c7d1cc2a0b6d4a48c32d3ba892480713689a3145b73cfeb02164736f6c63430008130033");
     let deployer = Address::ZERO;
-    let (addr, mut evm) = deploy_contract(code.into(), deployer, SpecId::LONDON);
+    let addr =
+        deploy_contract(&mut evm, code.into(), deployer, SpecId::LONDON).created_address().unwrap();
 
     let mut insp =
         TracingInspector::new(TracingInspectorConfig::default_geth().set_record_logs(true));
 
-    let env = evm.env_with_tx(TxEnv {
+    let mut evm = evm.with_inspector(&mut insp);
+    evm.set_tx(TxEnv {
         caller: deployer,
         gas_limit: 1000000,
-        transact_to: TransactTo::Call(addr),
+        kind: TransactTo::Call(addr),
         data: Bytes::default(), // call fallback
+        nonce: 1,
         ..Default::default()
     });
 
-    let (res, _) = inspect(&mut evm.db, env, &mut insp).unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
 
     let call_frame = insp
@@ -132,18 +138,17 @@ fn test_geth_mux_tracer() {
     }
     */
 
+    let mut evm = Context::mainnet().with_db(CacheDB::new(EmptyDB::default())).build_mainnet();
+
     let code = hex!("608060405234801561001057600080fd5b506103ac806100206000396000f3fe60806040526004361061003f5760003560e01c80630332ed131461014d5780636ae1ad40146101625780638384a00214610177578063de7eb4f31461018c575b60405134815233906000805160206103578339815191529060200160405180910390a2306001600160a01b0316636ae1ad406040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561009d57600080fd5b505af19250505080156100ae575060015b50306001600160a01b0316630332ed136040518163ffffffff1660e01b8152600401600060405180830381600087803b1580156100ea57600080fd5b505af19250505080156100fb575060015b50306001600160a01b0316638384a0026040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561013757600080fd5b505af115801561014b573d6000803e3d6000fd5b005b34801561015957600080fd5b5061014b6101a1565b34801561016e57600080fd5b5061014b610253565b34801561018357600080fd5b5061014b6102b7565b34801561019857600080fd5b5061014b6102dd565b306001600160a01b031663de7eb4f36040518163ffffffff1660e01b8152600401600060405180830381600087803b1580156101dc57600080fd5b505af11580156101f0573d6000803e3d6000fd5b505060405162461bcd60e51b8152602060048201526024808201527f6e6573746564456d6974576974684661696c75726541667465724e6573746564604482015263115b5a5d60e21b6064820152608401915061024a9050565b60405180910390fd5b6040516000815233906000805160206103578339815191529060200160405180910390a260405162461bcd60e51b81526020600482015260156024820152746e6573746564456d6974576974684661696c75726560581b604482015260640161024a565b6040516000815233906000805160206103578339815191529060200160405180910390a2565b6040516000815233906000805160206103578339815191529060200160405180910390a2306001600160a01b0316638384a0026040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561033c57600080fd5b505af1158015610350573d6000803e3d6000fd5b5050505056fef950957d2407bed19dc99b718b46b4ce6090c05589006dfb86fd22c34865b23ea2646970667358221220090a696b9fbd22c7d1cc2a0b6d4a48c32d3ba892480713689a3145b73cfeb02164736f6c63430008130033");
     let deployer = Address::ZERO;
-    let (addr, mut evm) = deploy_contract(code.into(), deployer, SpecId::LONDON);
+    let addr =
+        deploy_contract(&mut evm, code.into(), deployer, SpecId::LONDON).created_address().unwrap();
 
     let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };
+    let flatcall_config =
+        FlatCallConfig { convert_parity_errors: Some(true), include_precompiles: None };
     let prestate_config = PreStateConfig { diff_mode: Some(false), ..Default::default() };
-
-    let nested_call_config = CallConfig { only_top_call: Some(true), with_log: Some(false) };
-    let nested_mux_config = MuxConfig(HashMap::from_iter([(
-        GethDebugBuiltInTracerType::CallTracer,
-        Some(GethDebugTracerConfig(serde_json::to_value(nested_call_config).unwrap())),
-    )]));
 
     let config = MuxConfig(HashMap::from_iter([
         (GethDebugBuiltInTracerType::FourByteTracer, None),
@@ -156,31 +161,36 @@ fn test_geth_mux_tracer() {
             Some(GethDebugTracerConfig(serde_json::to_value(prestate_config).unwrap())),
         ),
         (
-            GethDebugBuiltInTracerType::MuxTracer,
-            Some(GethDebugTracerConfig(serde_json::to_value(nested_mux_config).unwrap())),
+            GethDebugBuiltInTracerType::FlatCallTracer,
+            Some(GethDebugTracerConfig(serde_json::to_value(flatcall_config).unwrap())),
         ),
     ]));
 
     let mut insp = MuxInspector::try_from_config(config.clone()).unwrap();
 
-    let env = evm.env_with_tx(TxEnv {
+    evm.ctx().set_tx(TxEnv {
         caller: deployer,
         gas_limit: 1000000,
-        transact_to: TransactTo::Call(addr),
+        kind: TransactTo::Call(addr),
         data: Bytes::default(), // call fallback
+        nonce: 1,
         ..Default::default()
     });
 
-    let (res, _) = inspect(&mut evm.db, env, &mut insp).unwrap();
+    let mut evm = evm.with_inspector(&mut insp);
+
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
 
-    let frame = insp.try_into_mux_frame(&res, &evm.db).unwrap();
+    let (ctx, inspector) = evm.ctx_inspector();
+    let frame =
+        inspector.try_into_mux_frame(&res, ctx.db_ref(), TransactionInfo::default()).unwrap();
 
     assert_eq!(frame.0.len(), 4);
     assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::FourByteTracer));
     assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::CallTracer));
     assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::PreStateTracer));
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::MuxTracer));
+    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::FlatCallTracer));
 
     let four_byte_frame = frame.0[&GethDebugBuiltInTracerType::FourByteTracer].clone();
     match four_byte_frame {
@@ -203,51 +213,57 @@ fn test_geth_mux_tracer() {
         _ => panic!("Expected CallTracer"),
     }
 
-    let nested_frame = frame.0[&GethDebugBuiltInTracerType::MuxTracer].clone();
-    match nested_frame {
-        GethTrace::MuxTracer(nested_frame) => {
-            assert_eq!(nested_frame.0.len(), 1);
-            assert!(nested_frame.0.contains_key(&GethDebugBuiltInTracerType::CallTracer));
-
-            let nested_call_frame = nested_frame.0[&GethDebugBuiltInTracerType::CallTracer].clone();
-            match nested_call_frame {
-                GethTrace::CallTracer(nested_call_frame) => {
-                    assert_eq!(nested_call_frame.calls.len(), 0);
-                    assert_eq!(nested_call_frame.logs.len(), 0);
-                }
-                _ => panic!("Expected CallTracer"),
+    let prestate_frame = frame.0[&GethDebugBuiltInTracerType::PreStateTracer].clone();
+    match prestate_frame {
+        GethTrace::PreStateTracer(prestate_frame) => {
+            if let PreStateFrame::Default(prestate_mode) = prestate_frame {
+                assert_eq!(prestate_mode.0.len(), 2);
+            } else {
+                panic!("Expected Default PreStateFrame");
             }
         }
-        _ => panic!("Expected MuxTracer"),
+        _ => panic!("Expected PreStateTracer"),
+    }
+
+    let flatcall_frame = frame.0[&GethDebugBuiltInTracerType::FlatCallTracer].clone();
+    match flatcall_frame {
+        GethTrace::FlatCallTracer(traces) => {
+            assert_eq!(traces.len(), 6);
+            assert!(traces[0].trace.error.is_none());
+            assert!(traces[1].trace.error.is_some());
+            assert!(traces[2].trace.error.is_some());
+            assert!(traces[3].trace.error.is_none());
+            assert!(traces[4].trace.error.is_none());
+            assert!(traces[5].trace.error.is_none());
+        }
+        _ => panic!("Expected FlatCallTracer"),
     }
 }
 
 #[test]
 fn test_geth_inspector_reset() {
-    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let insp = TracingInspector::new(TracingInspectorConfig::default_geth());
 
-    let mut db = CacheDB::new(EmptyDB::default());
-    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg.clone(),
-        BlockEnv::default(),
-        TxEnv {
-            caller: Address::ZERO,
-            gas_limit: 1000000,
-            gas_price: Default::default(),
-            transact_to: TransactTo::Call(Address::ZERO),
-            ..Default::default()
-        },
-    );
+    let context = Context::mainnet()
+        .with_db(CacheDB::new(EmptyDB::default()))
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
+        .modify_tx_chained(|tx| {
+            tx.caller = Address::ZERO;
+            tx.gas_limit = 1000000;
+            tx.gas_price = Default::default();
+            tx.kind = TransactTo::Call(Address::ZERO);
+        });
 
     assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
 
+    let mut evm = context.build_mainnet_with_inspector(insp);
     // first run inspector
-    let (res, env) = inspect(&mut db, env.clone(), &mut insp).unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
     assert_eq!(
-        insp.clone()
-            .with_transaction_gas_limit(env.tx.gas_limit)
+        evm.inspector()
+            .clone()
+            .with_transaction_gas_limit(evm.ctx().tx().gas_limit)
             .traces()
             .nodes()
             .first()
@@ -258,14 +274,16 @@ fn test_geth_inspector_reset() {
     );
 
     // reset the inspector
-    insp.fuse();
-    assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
+    evm.inspector().fuse();
+    assert_eq!(evm.inspector().traces().nodes().first().unwrap().trace.gas_limit, 0);
 
     // second run inspector after reset
-    let (res, env) = inspect(&mut db, env, &mut insp).unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
+    let gas_limit = evm.ctx().tx().gas_limit;
     assert_eq!(
-        insp.with_transaction_gas_limit(env.tx.gas_limit)
+        evm.into_inspector()
+            .with_transaction_gas_limit(gas_limit)
             .traces()
             .nodes()
             .first()
