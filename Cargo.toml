@@ -10,13 +10,13 @@ repository = "https://github.com/paradigmxyz/revm-inspectors"
 categories = ["cryptography"]
 keywords = ["ethereum", "evm", "inspectors", "tracing", "debugging"]
 exclude = [
-    ".github",
-    "scripts",
-    "testdata",
-    "tests",
-    "cliff.toml",
-    "deny.toml",
-    "release.toml",
+  ".github",
+  "scripts",
+  "testdata",
+  "tests",
+  "cliff.toml",
+  "deny.toml",
+  "release.toml",
 ]
 
 [lints]
@@ -34,7 +34,9 @@ alloy-rpc-types-eth = "0.5"
 alloy-rpc-types-trace = "0.5"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
-revm = { git = "https://github.com/weaveVM/wvm-revm", branch = "main", default-features = false, features = ["std"] }
+revm = { git = "https://github.com/weaveVM/wvm-revm", rev = "1839a61fde89c99d352bf9a47d1d1a7edcee4ab2", default-features = false, features = [
+  "std",
+] }
 
 anstyle = "1.0"
 colorchoice = "1.0"
